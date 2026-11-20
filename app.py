@@ -22,6 +22,35 @@ def load_portfolio(branch):
     return read_branch(branch)
 
 
+def turning_points(history):
+    """Confirm a peak or trough after a one-point move in both directions."""
+    turns = []
+    low = high = previous = None
+    direction = 0
+    for row in history:
+        value = row["pay"]
+        if value is None:
+            previous = None
+            continue
+        if previous != row["ay"] - 1:
+            low = high = row
+            direction = 0
+        previous = row["ay"]
+        if value < low["pay"]:
+            low = row
+        if value > high["pay"]:
+            high = row
+        if direction >= 0 and high["pay"] - value >= 1:
+            if direction == 1:
+                turns.append((high, "yükselişten düşüşe"))
+            direction, low = -1, row
+        elif direction <= 0 and value - low["pay"] >= 1:
+            if direction == -1:
+                turns.append((low, "düşüşten yükselişe"))
+            direction, high = 1, row
+    return turns
+
+
 def table(records, labels):
     df = pd.DataFrame(records)
     if df.empty:
@@ -63,7 +92,7 @@ with annual:
     st.subheader("Yıl içinde hangi şirket ne yaptı?")
     first_month, last_month = min(r[0] for r in raw), max(r[0] for r in raw)
     annual_panel, _, annual_geo = aggregate(rows, first_month, last_month, region)
-    st.caption(f"2026 · {MONTHS[first_month-1]}–{MONTHS[last_month-1]} · Şirketler, ardışık iki ay arasındaki en büyük mutlak prim payı değişimine göre sıralanır. Payın paydası o ay seçili portföyde gözlenen toplam primdir.")
+    st.caption(f"2026 · {MONTHS[first_month-1]}–{MONTHS[last_month-1]} · Şirketler, ardışık iki ay arasındaki en büyük mutlak prim payı değişimine göre sıralanır. Payın paydası o ay seçili portföyde gözlenen toplam primdir. Yön değişiminde hem önceki hareket hem de ters yöndeki hareket en az 1 puandır.")
     if last_month == 11:
         st.caption("Kasım kapanışı doğrulanmadı. HP ve frekans branşta şirket başına tek değerdir. Aylık seyirleri kaynakta yer almıyor.")
     histories = {}
@@ -82,6 +111,23 @@ with annual:
         valid = [r for r in history if r["pay"] is not None]
         moves = movements[name]
         st.markdown(f"### {name}")
+        latest = next((r for r in valid if r["ay"] == last_month), None)
+        prior = next((r for r in valid if r["ay"] == last_month - 1), None)
+        if latest is not None:
+            note = f"**{MONTHS[last_month-1]} prim pazar payı {pct(latest['pay'])}.**"
+            if prior is not None:
+                difference = latest["pay"] - prior["pay"]
+                direction = "yükseldi" if difference > 0 else "geriledi"
+                note += (f" {MONTHS[last_month-2]} payı {pct(prior['pay'])} idi. Bir ayda {fmt(abs(difference))} puan {direction}."
+                         if difference else " Önceki ayla aynı seviyede.")
+            st.write(note)
+        elif valid:
+            st.write(f"**{MONTHS[last_month-1]} prim pazar payı için veri yok.** Son gözlem {MONTHS[valid[-1]['ay']-1]} ayında {pct(valid[-1]['pay'])}.")
+        turns = turning_points(history)
+        if turns:
+            st.write("**Pazar payında yön değişimleri.** " + " ".join(
+                f"{MONTHS[r['ay']-1]} ayında {pct(r['pay'])} seviyesinde {change} döndü."
+                for r, change in turns))
         if valid:
             peak = max(valid, key=lambda r: r["pay"])
             low = min(valid, key=lambda r: r["pay"])
