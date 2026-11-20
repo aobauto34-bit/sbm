@@ -92,6 +92,9 @@ with annual:
     st.subheader("Yıl içinde hangi şirket ne yaptı?")
     first_month, last_month = min(r[0] for r in raw), max(r[0] for r in raw)
     annual_panel, _, annual_geo = aggregate(rows, first_month, last_month, region)
+    premiums = [0.0] + [row["prim"] / 1e6 for row in annual_panel]
+    lower, upper = min(premiums), max(premiums)
+    premium_scale = alt.Scale(domain=[lower, upper if upper > lower else 1.0], nice=5)
     st.caption(f"2026 · {MONTHS[first_month-1]}–{MONTHS[last_month-1]} · Şirketler, ardışık iki ay arasındaki en büyük mutlak prim payı değişimine göre sıralanır. Payın paydası o ay seçili portföyde gözlenen toplam primdir. Yön değişiminde hem önceki hareket hem de ters yöndeki hareket en az 1 puandır.")
     if last_month == 11:
         st.caption("Kasım kapanışı doğrulanmadı. HP ve frekans branşta şirket başına tek değerdir. Aylık seyirleri kaynakta yer almıyor.")
@@ -190,7 +193,7 @@ with annual:
         premium_chart = alt.Chart(chart_data, title="Aylık yazılan prim").mark_bar().encode(
             x=alt.X("Ay:O", title=None, sort=MONTHS, scale=alt.Scale(domain=MONTHS),
                     axis=alt.Axis(labelAngle=-35, labelOverlap=False)),
-            y=alt.Y("Milyon TL:Q", title="Milyon TL", axis=alt.Axis(
+            y=alt.Y("Milyon TL:Q", title="Milyon TL", scale=premium_scale, axis=alt.Axis(tickCount=5,
                 labelExpr='replace(replace(replace(format(datum.value, ",.2~f"), /,/g, "~"), ".", ","), /~/g, ".")')),
             tooltip=["Ay:N", alt.Tooltip("Prim:N", title="Yazılan prim")],
         ).properties(height=170)
