@@ -18,7 +18,7 @@ def pct(x):
 
 
 @st.cache_data
-def load(branch):
+def load_portfolio(branch):
     return read_branch(branch)
 
 
@@ -44,7 +44,7 @@ def table(records, labels):
 
 st.sidebar.title("sbm")
 branch = st.sidebar.radio("Branş", ["Trafik", "Kasko"], horizontal=True)
-raw, risks = load(branch)
+raw, risks = load_portfolio(branch)
 vehicles = sorted({r[5] for r in raw})
 persons = sorted({r[6] for r in raw})
 vehicle = st.sidebar.multiselect("Araç grubu", vehicles, default=[v for v in ["OTOMOBİL", "KAMYONET"] if v in vehicles])
