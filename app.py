@@ -1,0 +1,128 @@
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+from engine import MONTHS, aggregate, changes, read_branch, risk_summary, stable
+
+st.set_page_config(page_title="sbm · Üretim analizi", layout="wide")
+
+
+def fmt(x, digits=2):
+    return f"{x:,.{digits}f}".translate(str.maketrans(",.", ".,"))
+
+
+def pct(x):
+    return "%" + fmt(x)
+
+
+@st.cache_data
+def load(branch):
+    return read_branch(branch)
+
+
+def table(records, labels):
+    df = pd.DataFrame(records)
+    if df.empty:
+        st.info("Seçimde bu koşulu karşılayan kayıt yok.")
+        return
+    df = df[list(labels)].rename(columns=labels)
+    st.dataframe(df, hide_index=True, width="stretch")
+
+
+st.sidebar.title("sbm")
+branch = st.sidebar.radio("Branş", ["Trafik", "Kasko"], horizontal=True)
+rows, risks = load(branch)
+months = sorted({r[0] for r in rows})
+start, end = st.sidebar.select_slider("2026 dönemi", options=months,
+    value=(months[0], months[-1]), format_func=lambda n: MONTHS[n-1])
+cities = sorted({r[2] for r in rows})
+region = st.sidebar.selectbox("Plaka ili", ["Tümü", "İSTANBUL", "İstanbul dışı"] + [c for c in cities if c != "İSTANBUL"])
+panel, totals, geography = aggregate(rows, start, end, region)
+st.title(f"{branch} · Üretim ve pazar payı")
+st.caption(f"2026  /  {MONTHS[start-1]} – {MONTHS[end-1]}  /  Plaka ili: {region}  ·  Paylar seçilen kapsamdaki dosya üretimine göredir.")
+if end == 11:
+    st.caption("Kasım için ay sonu kapanışı doğrulanmadı. Aylık üretim tutarlarını bu kapsamda okuyun.")
+if not panel:
+    st.info("Seçilen dönemde ve ilde kayıt yok.")
+    st.stop()
+companies = sorted({r["şirket"] for r in panel})
+selected = st.sidebar.selectbox("İncelenen şirket", companies, index=companies.index("QUICK") if "QUICK" in companies else 0)
+focus = [r for r in panel if r["şirket"] == selected]
+alerts = changes(panel)
+p, n = (sum(x[i] for x in totals.values()) for i in (0, 1))
+a, b, c = st.columns(3)
+a.metric("Toplam yazılan prim", fmt(p/1e9) + " mlr TL")
+b.metric("Yazılan poliçe", fmt(n, 0))
+c.metric("Üretim kaydı olan şirket", len(companies))
+overview, market, risk, geo = st.tabs(["Şirket incelemesi", "Pay hareketleri", "HP ve frekans", "İl dağılımı"])
+with overview:
+    st.subheader(f"{selected} · Dönem görünümü")
+    first, last = focus[0], focus[-1]
+    st.write(f"{MONTHS[first['ay']-1]} ayında {fmt(first['prim']/1e6)} milyon TL primle payı {pct(first['pay'])}.")
+    if len(focus) > 1:
+        peak = max(focus, key=lambda r: r["pay"])
+        low = min(focus, key=lambda r: r["pay"])
+        st.write(f"En yüksek pay {MONTHS[peak['ay']-1]} ayında {pct(peak['pay'])}, en düşük pay {MONTHS[low['ay']-1]} ayında {pct(low['pay'])}. "
+                 f"Son gözlem olan {MONTHS[last['ay']-1]} ayında üretim {fmt(last['prim']/1e6)} milyon TL, pay {pct(last['pay'])}.")
+    swings = [r for r in alerts if r["şirket"] == selected]
+    if swings:
+        swing = swings[0]
+        st.write(f"En büyük aylık hareket {swing['önceki_ay']}–{swing['ay']} döneminde görüldü. "
+                 f"Pay {pct(swing['önceki_pay'])} seviyesinden {pct(swing['pay'])} seviyesine geldi ({fmt(swing['fark'])} puan).")
+    if selected in risks:
+        hp, freq, rank, mh, mf = risk_summary(risks, selected)
+        st.info(f"Branş genelinde {selected} için frekans {pct(freq)}, şirket medyanı {pct(mf)}. "
+                f"HP {pct(hp)} ile {len(risks)} şirket içinde yüksekten düşüğe {rank}. sırada. Kaynak bu iki oranı şirket düzeyinde sabit veriyor.")
+    compare = st.multiselect("Grafiğe şirket ekle", [c for c in companies if c != selected])
+    metric = st.radio("Gösterge", ["Prim payı (%)", "Adet payı (%)", "Yazılan prim (milyon TL)", "Ortalama prim (TL)"], horizontal=True)
+    field = {"Prim payı (%)":"pay","Adet payı (%)":"adet_payı","Yazılan prim (milyon TL)":"prim","Ortalama prim (TL)":"ortalama"}[metric]
+    points = {(r["şirket"],r["ay"]):r for r in panel}
+    chart_rows = []
+    for company in [selected] + compare:
+        for m in range(start,end+1):
+            value = points.get((company,m),{}).get(field)
+            chart_rows.append({"Ay":MONTHS[m-1],"Şirket":company,"Değer":value/1e6 if field=="prim" and value is not None else value})
+    chart = alt.Chart(pd.DataFrame(chart_rows)).mark_line(point=True).encode(
+        x=alt.X("Ay:O",sort=MONTHS[start-1:end],axis=alt.Axis(labelAngle=0)), y=alt.Y("Değer:Q",title=metric),
+        color="Şirket:N", tooltip=["Ay","Şirket",alt.Tooltip("Değer:Q",format=",.2f")])
+    st.altair_chart(chart, use_container_width=True)
+    table([dict(r, ay=MONTHS[r["ay"]-1]) for r in focus], {"ay":"Ay","prim":"Prim (TL)","pay":"Prim payı (%)","adet":"Poliçe","adet_payı":"Adet payı (%)","ortalama":"Ortalama prim (TL)"})
+with market:
+    st.subheader("Aydan aya belirgin pay değişimleri")
+    threshold = st.number_input("Mutlak değişim eşiği (yüzde puan)", 0.0, 100.0, 3.0, 0.25)
+    jumps = [r for r in alerts if abs(r["fark"]) > threshold]
+    st.caption(f"{len(jumps)} şirket-ay geçişi eşiği aşıyor. Artı değer pay kazanımını, eksi değer pay kaybını gösterir.")
+    table(jumps, {"şirket":"Şirket","önceki_ay":"Önceki ay","ay":"Ay","önceki_pay":"Önceki pay (%)","pay":"Yeni pay (%)","fark":"Değişim (puan)"})
+    st.subheader("Payını dar bir bantta koruyan şirketler")
+    width = st.number_input("En yüksek ve en düşük pay arasındaki azami fark (puan)",0.0,100.0,1.0,0.25)
+    st.caption("En az üç ay ve seçilen her ayda gözlem gerekir. Ortalama, aylık payların aritmetik ortalamasıdır.")
+    table(stable(panel,end-start+1,width),{"şirket":"Şirket","ortalama":"Ortalama pay (%)","en_düşük":"En düşük (%)","en_yüksek":"En yüksek (%)","bant":"Bant (puan)"})
+with risk:
+    st.subheader(f"{branch} · Şirketlerin HP ve frekans karşılaştırması")
+    st.write("Kaynakta şirket başına tek HP ve tek frekans bulunuyor. Sıralama tüm branşı kapsar. Ay ve il seçimi bu oranlara uygulanmaz. Medyan her şirkete eşit ağırlık verir.")
+    ranked = []
+    for company in sorted(risks,key=lambda c:-risks[c][0]):
+        hp, freq, rank, mh, mf = risk_summary(risks,company)
+        ranked.append(dict(c=company,rank=rank,hp=hp,f=freq,d=hp-mh,g=freq-mf))
+    table(ranked,{"rank":"HP sırası","c":"Şirket","hp":"HP (%)","f":"Frekans (%)","d":"HP medyanından fark (puan)","g":"Frekans medyanından fark (puan)"})
+with geo:
+    st.subheader(f"{selected} · Üretimin yoğunlaştığı iller")
+    city_totals = {}
+    for (_,city),(prem,_) in geography.items():
+        city_totals[city] = city_totals.get(city,0) + prem
+    portfolio = sum(r["prim"] for r in focus)
+    distribution = [dict(il=city,prim=val[0],adet=val[1],agirlik=100*val[0]/portfolio if portfolio else None,
+                    pay=100*val[0]/city_totals[city] if city_totals[city] else None)
+                    for (company,city),val in geography.items() if company == selected]
+    distribution.sort(key=lambda x:-x["prim"])
+    if portfolio:
+        top = distribution[0]
+        st.write(f"{top['il']} en yüksek prim üretilen il. Seçilen portföyün {pct(top['agirlik'])} kadarı bu ilde yazıldı.")
+    table(distribution,{"il":"Plaka ili","prim":"Prim (TL)","adet":"Poliçe","agirlik":"Şirket portföyünde (%)","pay":"İl pazarında (%)"})
+with st.expander("Veri kapsamı ve hesaplama"):
+    st.write(f"{branch}.csv dosyasında {fmt(len(rows),0)} satır var. Yıl bilgisi 2026 olarak tanımlandı. "
+             "Prim payı, şirketin aylık yazılan priminin aynı ay ve coğrafyadaki toplam prime bölünmesiyle hesaplanır. "
+             "Adet payında aynı hesap poliçe adediyle yapılır. Ortalama prim toplam prim / toplam adettir. Negatif prim kayıtları hesaba dahildir. "
+             "Kayıt bulunmayan şirket-ay sıfıra çevrilmez. Pay hareketleri yalnızca ardışık iki takvim ayında gözlem varsa hesaplanır. "
+             "İstanbul dışı, dosyadaki YURTDIŞI dahil İstanbul haricindeki plaka kayıtlarını kapsar. "
+             "Hasar tutarı, kazanılmış prim ve maruziyet bulunmadığından sektörün teknik HP ve frekansı yeniden hesaplanamaz.")
