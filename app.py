@@ -121,6 +121,23 @@ with annual:
             st.caption(f"En fazla prim yazdığı il {city}. Seçili portföydeki şirket priminin {pct(100*premium/total)} kadarı bu ilden geldi.")
         by_month = {r["ay"]: r["pay"] for r in valid}
         st.caption(" · ".join(f"{MONTHS[m-1]} {pct(by_month.get(m))}" for m in range(first_month,last_month+1)))
+        monthly_premium = pd.DataFrame(history).set_index("ay")["prim"].reindex(range(1, 13))
+        chart_data = pd.DataFrame({
+            "Ay": MONTHS,
+            "Milyon TL": monthly_premium.to_numpy() / 1e6,
+            "Prim": [fmt(value, 0) + " TL" if pd.notna(value) else "Veri yok" for value in monthly_premium],
+        })
+        premium_chart = alt.Chart(chart_data, title="Aylık yazılan prim").mark_bar().encode(
+            x=alt.X("Ay:O", title=None, sort=MONTHS, scale=alt.Scale(domain=MONTHS),
+                    axis=alt.Axis(labelAngle=-35, labelOverlap=False)),
+            y=alt.Y("Milyon TL:Q", title="Milyon TL", axis=alt.Axis(
+                labelExpr='replace(replace(replace(format(datum.value, ",.2~f"), /,/g, "~"), ".", ","), /~/g, ".")')),
+            tooltip=["Ay:N", alt.Tooltip("Prim:N", title="Yazılan prim")],
+        ).properties(height=170)
+        st.altair_chart(premium_chart, width="stretch", key=f"prim_{name}")
+        missing = [MONTHS[m-1] for m in monthly_premium.index[monthly_premium.isna()]]
+        if missing:
+            st.caption("Prim kaydı bulunmayan aylar: " + ", ".join(missing))
         st.divider()
 with details:
     start, end = st.sidebar.select_slider("Detay tablolarının dönemi", options=months,
