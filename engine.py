@@ -1,4 +1,7 @@
-import csv
+import json
+from zipfile import ZipFile
+
+import pandas as pd
 from collections import defaultdict
 from pathlib import Path
 from statistics import median
@@ -7,16 +10,24 @@ MONTHS = "Ocak Şubat Mart Nisan Mayıs Haziran Temmuz Ağustos Eylül Ekim Kas�
 DATA = Path(__file__).parent / "data"
 
 
-def read_branch(branch):
-    with (DATA / f"{branch}.csv").open(encoding="utf-8-sig", newline="") as f:
-        rows = []
-        risks = defaultdict(set)
-        for r in csv.DictReader(f):
-            company = r["Sirket Adı"]
-            month = MONTHS.index(r["Ay"]) + 1
-            rows.append((month, company, r["Plaka İl"], int(r["Yazılan Poliçe Primi"]), int(r["Yazılan Poliçe Adedi"]), r["Araç Grubu"], r["Sigortalı Türü"]))
-            risks[company].add(tuple(float(r[k].strip("%").replace(",", ".")) for k in ("HP", "Freq")))
-    return rows, {c: next(iter(v)) for c, v in risks.items() if len(v) == 1}
+SNAPSHOT = Path(__file__).parent / "kokpit.zip"
+
+
+def metadata():
+    with ZipFile(SNAPSHOT) as archive:
+        return json.loads(archive.read("meta.json"))
+
+
+def read_branch(branch, vehicles, persons):
+    with ZipFile(SNAPSHOT) as archive, archive.open(f"{branch}.csv") as stream:
+        parts = []
+        keys = ["ay", "şirket", "il"]
+        for chunk in pd.read_csv(stream, chunksize=100000, keep_default_na=False):
+            selection = chunk[chunk["araç"].isin(vehicles) & chunk["tür"].isin(persons)]
+            parts.append(selection.groupby(keys)[["kuruş", "adet"]].sum())
+    sums = pd.concat(parts).groupby(level=keys).sum().reset_index()
+    sums["prim"] = sums.pop("kuruş") / 100
+    return list(sums[keys + ["prim", "adet"]].itertuples(index=False, name=None))
 
 
 def aggregate(rows, start, end, region):
@@ -66,5 +77,7 @@ def stable(panel, months, width):
 
 def risk_summary(risks, company):
     hp, freq = risks[company]
-    return (hp, freq, 1+sum(h > hp for h, _ in risks.values()),
-            median(h for h, _ in risks.values()), median(f for _, f in risks.values()))
+    hs = [h for h, _ in risks.values() if h is not None]
+    fs = [f for _, f in risks.values() if f is not None]
+    return (hp, freq, 1 + sum(h > hp for h in hs) if hp is not None else None,
+            median(hs) if hs else None, median(fs) if fs else None)
