@@ -135,9 +135,11 @@ with annual:
             tooltip=["Ay:N", alt.Tooltip("Prim:N", title="Yazılan prim")],
         ).properties(height=170)
         st.altair_chart(premium_chart, width="stretch", key=f"prim_{name}")
-        missing = [MONTHS[m-1] for m in monthly_premium.index[monthly_premium.isna()]]
-        if missing:
-            st.caption("Prim kaydı bulunmayan aylar: " + ", ".join(missing))
+        st.dataframe(
+            pd.DataFrame([{month: fmt(amount, 0) + " TL" if pd.notna(amount) else ""
+                           for month, amount in zip(MONTHS, monthly_premium)}]),
+            hide_index=True, width="stretch",
+        )
         st.divider()
 with details:
     start, end = st.sidebar.select_slider("Detay tablolarının dönemi", options=months,
