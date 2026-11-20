@@ -232,6 +232,7 @@ with details:
         return pair
 
     local = endpoints(monthly, ["il","şirket"]).join(frame.groupby(["il","şirket"]).prim.sum()).reset_index()
+    local["il_sırası"] = local.groupby("il")["prim"].rank(method="min", ascending=False).astype(int)
     local = local.sort_values("fark", key=lambda x: x.abs(), ascending=False, na_position="last")
     with summary:
         st.subheader("Şirketler bir bakışta")
@@ -248,7 +249,7 @@ with details:
                 st.write(f"{title} şirket {hit['şirket']} ({fmt(abs(hit.fark))} puan).")
         table(company.to_dict("records"), {"şirket":"Şirket","prim":"Dönem primi (TL)","adet":"Poliçe","dönem":"Dönem payı (%)","ilk":"İlk ay (%)","son":"Son ay (%)","fark":"Değişim (puan)"})
         st.subheader("İllerde şirket hareketleri")
-        st.caption(f"{period} · Her şirketin il içindeki prim payı karşılaştırılır. En büyük mutlak değişimler üsttedir.")
+        st.caption(f"{period} · İl sırası, seçili portföyde dönem primine göre hesaplanır. Eşit primler aynı sırayı alır. En büyük mutlak pay değişimleri üsttedir.")
         left, right = st.columns(2)
         places = left.multiselect("İlleri seç", sorted(local.il.unique()))
         names = right.multiselect("Şirketleri seç", companies)
@@ -257,7 +258,7 @@ with details:
             visible = visible[visible.il.isin(places)]
         if names:
             visible = visible[visible.şirket.isin(names)]
-        table(visible.to_dict("records"), {"il":"Plaka ili","şirket":"Şirket","prim":"Dönem primi (TL)","ilk":"İlk ay (%)","son":"Son ay (%)","fark":"Değişim (puan)"})
+        table(visible.to_dict("records"), {"il":"Plaka ili","şirket":"Şirket","il_sırası":"İl sırası","prim":"Dönem primi (TL)","ilk":"İlk ay (%)","son":"Son ay (%)","fark":"Değişim (puan)"})
     with overview:
         st.subheader(f"{selected} · Dönem görünümü")
         first, last = focus[0], focus[-1]
