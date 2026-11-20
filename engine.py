@@ -14,7 +14,7 @@ def read_branch(branch):
         for r in csv.DictReader(f):
             company = r["Sirket Adı"]
             month = MONTHS.index(r["Ay"]) + 1
-            rows.append((month, company, r["Plaka İl"], int(r["Yazılan Poliçe Primi"]), int(r["Yazılan Poliçe Adedi"])))
+            rows.append((month, company, r["Plaka İl"], int(r["Yazılan Poliçe Primi"]), int(r["Yazılan Poliçe Adedi"]), r["Araç Grubu"], r["Sigortalı Türü"]))
             risks[company].add(tuple(float(r[k].strip("%").replace(",", ".")) for k in ("HP", "Freq")))
     return rows, {c: next(iter(v)) for c, v in risks.items() if len(v) == 1}
 
@@ -23,7 +23,7 @@ def aggregate(rows, start, end, region):
     groups = defaultdict(lambda: [0, 0])
     totals = defaultdict(lambda: [0, 0])
     cities = defaultdict(lambda: [0, 0])
-    for m, c, city, premium, count in rows:
+    for m, c, city, premium, count, *_ in rows:
         if not start <= m <= end:
             continue
         if region == "İstanbul dışı" and city == "İSTANBUL":
