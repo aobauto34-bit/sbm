@@ -118,9 +118,12 @@ with annual:
             if prior is not None:
                 difference = latest["pay"] - prior["pay"]
                 direction = "yükseldi" if difference > 0 else "geriledi"
-                note += (f" {MONTHS[last_month-2]} payı {pct(prior['pay'])} idi. Bir ayda {fmt(abs(difference))} puan {direction}."
+                note += (f" {MONTHS[last_month-2]} payı {pct(prior['pay'])} idi. **{'+' if difference > 0 else '−'}{fmt(abs(difference))} puan** ({direction})."
                          if difference else " Önceki ayla aynı seviyede.")
-            st.write(note)
+            if prior is not None and abs(difference) > 3:
+                st.warning(note)
+            else:
+                st.write(note)
         elif valid:
             st.write(f"**{MONTHS[last_month-1]} prim pazar payı için veri yok.** Son gözlem {MONTHS[valid[-1]['ay']-1]} ayında {pct(valid[-1]['pay'])}.")
         turns = turning_points(history)
@@ -143,11 +146,15 @@ with annual:
         notable = sorted([a for a in moves if abs(a["fark"]) > 3], key=lambda a: MONTHS.index(a["ay"]))
         if moves:
             events = notable or moves[:1]
-            notes = []
+            st.markdown("**3 puanı aşan hareketler**" if notable else "**En büyük aylık hareket**")
             for move in events:
-                verb = "yükseldi" if move["fark"] > 0 else "geriledi" if move["fark"] < 0 else "sabit kaldı"
-                notes.append(f"{move['önceki_ay']} → {move['ay']} döneminde {pct(move['önceki_pay'])} → {pct(move['pay'])} ({fmt(abs(move['fark']))} puan) {verb}")
-            st.write(("**3 puanı aşan hareketler**  " if notable else "**En büyük aylık hareket**  ") + ". ".join(notes) + ".")
+                delta = move["fark"]
+                sign = "+" if delta > 0 else "−" if delta < 0 else ""
+                line = f"**{move['önceki_ay']} → {move['ay']}** · {pct(move['önceki_pay'])} → {pct(move['pay'])} (**{sign}{fmt(abs(delta))} puan**)"
+                if notable:
+                    st.warning(line)
+                else:
+                    st.write(line)
         else:
             st.write("Aydan aya değişim hesaplamak için ardışık iki ayda karşılaştırılabilir pay bulunmuyor.")
         if moves:
