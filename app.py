@@ -242,6 +242,11 @@ with details:
         return pair
 
     local = endpoints(monthly, ["il","şirket"]).join(frame.groupby(["il","şirket"]).prim.sum()).reset_index()
+    province_premium = local.groupby("il")["prim"].transform("sum")
+    local["dönem_pay"] = 100 * local.prim / province_premium.where(province_premium != 0)
+    coverage = monthly.groupby(["il", "şirket"])["ay"].agg(
+        lambda months: ", ".join(MONTHS[m-1] for m in sorted(months)))
+    local = local.join(coverage.rename("kayıt_ayları"), on=["il", "şirket"])
     local["il_sırası"] = local.groupby("il")["prim"].rank(method="min", ascending=False).astype(int)
     local = local.sort_values("fark", key=lambda x: x.abs(), ascending=False, na_position="last")
     with summary:
@@ -268,7 +273,13 @@ with details:
             visible = visible[visible.il.isin(places)]
         if names:
             visible = visible[visible.şirket.isin(names)]
-        table(visible.to_dict("records"), {"il":"Plaka ili","şirket":"Şirket","il_sırası":"İl sırası","prim":"Dönem primi (TL)","ilk":"İlk ay (%)","son":"Son ay (%)","fark":"Değişim (puan)"})
+        st.caption("Dönem payı, seçili dönemde ilde yazılan toplam prim üzerinden hesaplanır. İlk veya son ayda kayıt yoksa o ayın payı ve iki ay arasındaki değişim boş kalır.")
+        table(visible.to_dict("records"), {"il":"Plaka ili","şirket":"Şirket","il_sırası":"İl sırası","prim":"Dönem primi (TL)","dönem_pay":"Dönem il payı (%)","kayıt_ayları":"Kayıt bulunan aylar","ilk":f"İlk ay · {MONTHS[start-1]} (%)","son":f"Son ay · {MONTHS[end-1]} (%)","fark":"Değişim (puan)"})
+        if places or names:
+            with st.expander("Kayıt bulunan aylarda prim ve il payı"):
+                detail = monthly.merge(visible[["il", "şirket"]], on=["il", "şirket"]).sort_values(["il", "şirket", "ay"])
+                detail["ay"] = detail.ay.map(lambda m: MONTHS[m-1])
+                table(detail.to_dict("records"), {"il":"Plaka ili","şirket":"Şirket","ay":"Ay","prim":"Aylık prim (TL)","pay":"Aylık il payı (%)"})
     with overview:
         st.subheader(f"{selected} · Dönem görünümü")
         first, last = focus[0], focus[-1]
