@@ -42,7 +42,7 @@ def table(records, labels):
                  height=min(760, 38 + 35 * len(df)))
 
 
-st.sidebar.title("sbm")
+st.sidebar.title("SBM")
 branch = st.sidebar.radio("Branş", ["Trafik", "Kasko"], horizontal=True)
 raw, risks = load_portfolio(branch)
 vehicles = sorted({r[5] for r in raw})
@@ -111,9 +111,16 @@ with annual:
             before, after = by_id[current-1], by_id[current]
             st.write(f"En büyük pay hareketinin yaşandığı iki ayda yazılan prim {fmt(before['prim']/1e6)} milyon TL'den {fmt(after['prim']/1e6)} milyon TL'ye geldi.")
         if name in risks:
-            hp, freq, rank, _, mf = risk_summary(risks, name)
-            relative = "altında" if freq < mf else "üzerinde" if freq > mf else "aynı düzeyde"
-            st.write(f"Branş genelinde frekansı {pct(freq)}, medyan ({pct(mf)}) ile karşılaştırıldığında {relative}. HP {pct(hp)} ile {len(risks)} şirket arasında yüksekten düşüğe {rank}. sırada.")
+            hp, freq, rank, median_hp, median_freq = risk_summary(risks, name)
+            st.write(f"**HP ve frekansın seyri.** Kaynak, {name} için aylık satırlarda aynı branş değerlerini tekrarlıyor "
+                     f"(HP {pct(hp)}, frekans {pct(freq)}). Bu veriden aylık artış veya düşüş hesaplanamıyor.")
+            comparison = []
+            for label, value, midpoint in [("HP", hp, median_hp), ("Frekans", freq, median_freq)]:
+                gap = value - midpoint
+                position = f"{fmt(abs(gap))} puan " + ("üzerinde" if gap > 0 else "altında") if gap else "aynı düzeyde"
+                comparison.append(f"{label} için branştaki şirketlerin medyanı {pct(midpoint)}. {name} bu değerle aynı düzeyde."
+                                  if not gap else f"{label}, branştaki şirketlerin medyanının ({pct(midpoint)}) {position}.")
+            st.write(" ".join(comparison) + f" HP sıralamasında {len(risks)} şirket içinde yüksekten düşüğe {rank}. sırada.")
         cities_for_company = [(city, value[0]) for (company, city), value in annual_geo.items() if company == name]
         total = sum(premium for _, premium in cities_for_company)
         if total > 0 and len(cities_for_company) > 1:
